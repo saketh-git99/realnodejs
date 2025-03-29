@@ -22,16 +22,6 @@ phases:
 
   build:
     commands:
-      - echo "Checking if ECS cluster exists..."
-      - |
-        CLUSTER_EXIST=$(aws ecs describe-clusters --clusters $ECS_CLUSTER --query "clusters[*].status" --output text 2>/dev/null || echo "MISSING")
-        if [ "$CLUSTER_EXIST" != "ACTIVE" ]; then
-          echo "Creating ECS cluster..."
-          aws ecs create-cluster --cluster-name $ECS_CLUSTER
-          echo "ECS cluster created."
-        else
-          echo "ECS cluster already exists."
-        fi
       - echo Building Docker image...
       - docker build -t $IMAGE_URI:$IMAGE_TAG .
       - docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
