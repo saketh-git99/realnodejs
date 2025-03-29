@@ -22,10 +22,11 @@ phases:
 
   build:
     commands:
-      - echo Checking if ECS cluster exists...
+      - echo "Checking if ECS cluster exists..."
       - |
         CLUSTER_EXIST=$(aws ecs describe-clusters --clusters $ECS_CLUSTER --query "clusters[*].status" --output text 2>/dev/null || echo "MISSING")
         if [ "$CLUSTER_EXIST" != "ACTIVE" ]; then
+          echo "Creating ECS cluster..."
           aws ecs create-cluster --cluster-name $ECS_CLUSTER
           echo "ECS cluster created."
         else
@@ -70,7 +71,8 @@ phases:
       - echo Registering new task definition...
       - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
       - echo "New task revision: $TASK_REVISION"
-      - echo Checking if ECS service exists...
+
+      - echo "Checking if ECS service exists..."
       - |
         SERVICE_EXIST=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query "services[*].status" --output text 2>/dev/null || echo "MISSING")
         if [ "$SERVICE_EXIST" = "MISSING" ]; then
