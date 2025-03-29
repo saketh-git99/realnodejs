@@ -12,13 +12,33 @@ env:
     SECURITY_GROUP: "sg-035ab683d85614af5"
 
 phases:
-  pre_build:
+  post_build:
     commands:
-      - echo Logging into Amazon ECR...
-      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-      - IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO"
-      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
-      - echo "IMAGE_URI=$IMAGE_URI"
+      - echo "Pushing Docker image..."
+      - docker push $IMAGE_URI:$IMAGE_TAG
+      - docker push $IMAGE_URI:latest
+
+      - echo "Registering new ECS task definition..."
+      - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
+      - echo "New task revision: $TASK_REVISION"
+
+      - echo "Checking if ECS service exists..."
+      - |
+        SERVICE_STATUS=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query "services[*].status" --output text 2>/dev/null || echo "MISSING")
+        
+        if [ "$SERVICE_STATUS" = "MISSING" ]; then
+          echo "Creating ECS service..."
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $ECS_SERVICE \
+            --task-definition $TASK_FAMILY:$TASK_REVISION \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[\"$SUBNET_ID\"],securityGroups=[\"$SECURITY_GROUP\"],assignPublicIp=ENABLED}"
+        else
+          echo "Updating ECS service..."
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
+        fi
 
   build:
     commands:
