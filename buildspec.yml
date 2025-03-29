@@ -1,21 +1,63 @@
 version: 0.2
 
-phases:
-  install:
-    runtime-versions:
-      nodejs: 18
-    commands:
-      - echo Installing dependencies...
-      - npm install
+env:
+  variables:
+    AWS_REGION: "us-east-1"  # Change to your AWS region
+    ECR_REPO: "ecs-nodejs-repo"  # Change to your ECR repository name
+    ECS_CLUSTER: "nodejs-cluster"  # Your ECS Cluster name
+    ECS_SERVICE: "nodejs-service"  # Your ECS Service name
+    TASK_FAMILY: "nodejs-task"  # Your ECS Task Definition family
 
+phases:
+  pre_build:
+    commands:
+      - echo Logging into Amazon ECR...
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO"
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+      - echo "IMAGE_URI=$IMAGE_URI"
+  
   build:
     commands:
-      - echo Running tests...
-      - npm test  # Ensure tests are set up in package.json
-      - echo Building application...
-      - zip -r node-app.zip .   # Zip the application for deployment
+      - echo Building Docker image...
+      - docker build -t $IMAGE_URI:$IMAGE_TAG .
+      - docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
+  
+  post_build:
+    commands:
+      - echo Pushing Docker image...
+      - docker push $IMAGE_URI:$IMAGE_TAG
+      - docker push $IMAGE_URI:latest
+      - echo Writing new ECS task definition...
+      - |
+        cat > task-definition.json <<EOF
+        {
+          "family": "$TASK_FAMILY",
+          "networkMode": "awsvpc",
+          "executionRoleArn": "arn:aws:iam::$AWS_ACCOUNT_ID:role/ecsTaskExecutionRole",
+          "containerDefinitions": [
+            {
+              "name": "nodejs-app",
+              "image": "$IMAGE_URI:$IMAGE_TAG",
+              "memory": 512,
+              "cpu": 256,
+              "essential": true,
+              "portMappings": [
+                {
+                  "containerPort": 3000,
+                  "hostPort": 3000
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+      - echo Registering new task definition...
+      - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
+      - echo "New task revision: $TASK_REVISION"
+      - echo Updating ECS service...
+      - aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
 
 artifacts:
   files:
-    - node-app.zip
-  discard-paths: yes
+    - task-definition.json
