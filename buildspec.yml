@@ -2,11 +2,14 @@ version: 0.2
 
 env:
   variables:
-    AWS_REGION: "us-east-1"  # Change to your AWS region
-    ECR_REPO: "ecs-nodejs-repo"  # Change to your ECR repository name
-    ECS_CLUSTER: "nodejs-cluster"  # Your ECS Cluster name
-    ECS_SERVICE: "nodejs-service"  # Your ECS Service name
-    TASK_FAMILY: "nodejs-task"  # Your ECS Task Definition family
+    AWS_REGION: "eu-west-2"
+    AWS_ACCOUNT_ID: "420816890421"
+    ECR_REPO: "ecs-nodejs-repo"
+    ECS_CLUSTER: "nodejs-cluster"
+    ECS_SERVICE: "nodejs-service"
+    TASK_FAMILY: "nodejs-task"
+    SUBNET_ID: "subnet-01d80ff00b2e4cee6"
+    SECURITY_GROUP: "sg-035ab683d85614af5"
 
 phases:
   pre_build:
@@ -16,25 +19,37 @@ phases:
       - IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO"
       - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
       - echo "IMAGE_URI=$IMAGE_URI"
-  
+
   build:
     commands:
+      - echo Checking if ECS cluster exists...
+      - |
+        CLUSTER_EXIST=$(aws ecs describe-clusters --clusters $ECS_CLUSTER --query "clusters[*].status" --output text 2>/dev/null || echo "MISSING")
+        if [ "$CLUSTER_EXIST" != "ACTIVE" ]; then
+          aws ecs create-cluster --cluster-name $ECS_CLUSTER
+          echo "ECS cluster created."
+        else
+          echo "ECS cluster already exists."
+        fi
       - echo Building Docker image...
       - docker build -t $IMAGE_URI:$IMAGE_TAG .
       - docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
-  
+
   post_build:
     commands:
       - echo Pushing Docker image...
       - docker push $IMAGE_URI:$IMAGE_TAG
       - docker push $IMAGE_URI:latest
-      - echo Writing new ECS task definition...
+      - echo Writing ECS task definition...
       - |
         cat > task-definition.json <<EOF
         {
           "family": "$TASK_FAMILY",
           "networkMode": "awsvpc",
           "executionRoleArn": "arn:aws:iam::$AWS_ACCOUNT_ID:role/ecsTaskExecutionRole",
+          "requiresCompatibilities": ["FARGATE"],
+          "cpu": "256",
+          "memory": "512",
           "containerDefinitions": [
             {
               "name": "nodejs-app",
@@ -55,8 +70,22 @@ phases:
       - echo Registering new task definition...
       - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
       - echo "New task revision: $TASK_REVISION"
-      - echo Updating ECS service...
-      - aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
+      - echo Checking if ECS service exists...
+      - |
+        SERVICE_EXIST=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query "services[*].status" --output text 2>/dev/null || echo "MISSING")
+        if [ "$SERVICE_EXIST" = "MISSING" ]; then
+          echo "Creating ECS service..."
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name $ECS_SERVICE \
+            --task-definition $TASK_FAMILY:$TASK_REVISION \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}"
+        else
+          echo "Updating ECS service..."
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
+        fi
 
 artifacts:
   files:
