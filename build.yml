@@ -72,7 +72,7 @@ Resources:
                 Capabilities: CAPABILITY_IAM
                 TemplatePath: SourceOutput::ecs-cloudformation.yml
                 Parameters: |
-                  VpcId=<vpc-0d10393a33604e714>
-                  SubnetIds=<subnet-01d80ff00b2e4cee6>,<subnet-0e23ea4a450f914b4>
+                  VpcId=vpc-0d10393a33604e714
+                  SubnetIds=subnet-01d80ff00b2e4cee6,subnet-0e23ea4a450f914b4
               InputArtifacts:
                 - Name: SourceOutput
