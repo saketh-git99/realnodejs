@@ -5,7 +5,7 @@ FROM node:18
 WORKDIR /app
 
 # Copy package.json and package-lock.json first (for better caching)
-COPY package.json package-lock.json ./
+COPY package*.json ./
 
 # Install dependencies (avoid installing dev dependencies in production)
 RUN npm install --only=production
