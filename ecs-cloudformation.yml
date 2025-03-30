@@ -36,6 +36,9 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
                   - ecr:GetAuthorizationToken
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
@@ -95,6 +98,7 @@ Resources:
           systemctl enable --now ecs.service
           yum install -y aws-cli
           echo "ECS agent started."
+          systemctl restart ecs
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -103,7 +107,7 @@ Resources:
       RequiresCompatibilities: [EC2]
       Cpu: '256'
       Memory: '512'
-      NetworkMode: host
+      NetworkMode: bridge
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-app
@@ -113,7 +117,7 @@ Resources:
           Essential: true
           PortMappings:
             - ContainerPort: 3000
-              HostPort: 3000
+              HostPort: 0
 
   ECSService:
     Type: AWS::ECS::Service
