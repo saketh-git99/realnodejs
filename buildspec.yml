@@ -1,104 +1,102 @@
-version: 0.2
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to deploy a Node.js app on AWS Fargate with ECS'
 
-env:
-  variables:
-    AWS_REGION: "eu-west-2"
-    AWS_ACCOUNT_ID: "420816890421"
-    ECR_REPO: "ecs-nodejs-repo"
-    ECS_CLUSTER: "nodejs-cluster"
-    ECS_SERVICE: "nodejs-service"
-    TASK_FAMILY: "nodejs-task"
-    SUBNET_ID: "subnet-01d80ff00b2e4cee6"
-    SECURITY_GROUP: "sg-035ab683d85614af5"
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC ID
 
-phases:
-  post_build:
-    commands:
-      - echo "Pushing Docker image..."
-      - docker push $IMAGE_URI:$IMAGE_TAG
-      - docker push $IMAGE_URI:latest
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select at least two subnets in different AZs
 
-      - echo "Registering new ECS task definition..."
-      - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
-      - echo "New task revision: $TASK_REVISION"
+Resources:
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: nodejs-cluster
 
-      - echo "Checking if ECS service exists..."
-      - |
-        SERVICE_STATUS=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query "services[*].status" --output text 2>/dev/null || echo "MISSING")
-        
-        if [ "$SERVICE_STATUS" = "MISSING" ]; then
-          echo "Creating ECS service..."
-          aws ecs create-service \
-            --cluster $ECS_CLUSTER \
-            --service-name $ECS_SERVICE \
-            --task-definition $TASK_FAMILY:$TASK_REVISION \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[\"$SUBNET_ID\"],securityGroups=[\"$SECURITY_GROUP\"],assignPublicIp=ENABLED}"
-        else
-          echo "Updating ECS service..."
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
-        fi
+  # IAM Role for ECS Task Execution
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecsTaskExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ecs-tasks.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: ecsTaskExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:CreateLogGroup
+                Resource: '*'
 
-  build:
-    commands:
-      - echo Building Docker image...
-      - docker build -t $IMAGE_URI:$IMAGE_TAG .
-      - docker tag $IMAGE_URI:$IMAGE_TAG $IMAGE_URI:latest
+  # Security Group for ECS Tasks
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound traffic to ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
 
-  post_build:
-    commands:
-      - echo Pushing Docker image...
-      - docker push $IMAGE_URI:$IMAGE_TAG
-      - docker push $IMAGE_URI:latest
-      - echo Writing ECS task definition...
-      - |
-        cat > task-definition.json <<EOF
-        {
-          "family": "$TASK_FAMILY",
-          "networkMode": "awsvpc",
-          "executionRoleArn": "arn:aws:iam::$AWS_ACCOUNT_ID:role/ecsTaskExecutionRole",
-          "requiresCompatibilities": ["FARGATE"],
-          "cpu": "256",
-          "memory": "512",
-          "containerDefinitions": [
-            {
-              "name": "nodejs-app",
-              "image": "$IMAGE_URI:$IMAGE_TAG",
-              "memory": 512,
-              "cpu": 256,
-              "essential": true,
-              "portMappings": [
-                {
-                  "containerPort": 3000,
-                  "hostPort": 3000
-                }
-              ]
-            }
-          ]
-        }
-        EOF
-      - echo Registering new task definition...
-      - TASK_REVISION=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query 'taskDefinition.revision' --output text)
-      - echo "New task revision: $TASK_REVISION"
+  # ECS Task Definition
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: nodejs-task
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: nodejs-app
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ecs-nodejs-repo:latest"
+          Memory: 512
+          Cpu: 256
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
 
-      - echo "Checking if ECS service exists..."
-      - |
-        SERVICE_EXIST=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query "services[*].status" --output text 2>/dev/null || echo "MISSING")
-        if [ "$SERVICE_EXIST" = "MISSING" ]; then
-          echo "Creating ECS service..."
-          aws ecs create-service \
-            --cluster $ECS_CLUSTER \
-            --service-name $ECS_SERVICE \
-            --task-definition $TASK_FAMILY:$TASK_REVISION \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_ID],securityGroups=[$SECURITY_GROUP],assignPublicIp=ENABLED}"
-        else
-          echo "Updating ECS service..."
-          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_FAMILY:$TASK_REVISION
-        fi
+  # ECS Service
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: nodejs-service
+      LaunchType: FARGATE
+      DesiredCount: 1
+      TaskDefinition: !Ref TaskDefinition.Arn
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref SubnetIds
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          AssignPublicIp: ENABLED
 
-artifacts:
-  files:
-    - task-definition.json
+Outputs:
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+
+  ECSTaskExecutionRole:
+    Description: IAM Role for ECS Task Execution
+    Value: !GetAtt ECSTaskExecutionRole.Arn

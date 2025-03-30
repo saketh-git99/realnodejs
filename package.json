@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test:unit": "jest --coverage",
-    "test:onlychanged": "jest --onlyChanged --coverage",
-    "test:markdown": "markdownlint . --ignore-path .gitignore",
-    "lint": "standard",
-    "test": "npm run lint && npm run test:unit && npm run test:markdown"
-  },
+"scripts": {
+  "start": "node index.js",
+  "deploy": "aws cloudformation deploy --template-file cloudformation.yaml --stack-name nodejs-app-stack --capabilities CAPABILITY_NAMED_IAM --parameter-overrides VpcId=vpc-xxxxx SubnetIds=subnet-xxxx,subnet-yyyy",
+  "validate": "aws cloudformation validate-template --template-body file://cloudformation.yaml",
+  "test:unit": "jest --coverage",
+  "test:onlychanged": "jest --onlyChanged --coverage",
+  "test:markdown": "markdownlint . --ignore-path .gitignore",
+  "lint": "standard",
+  "test": "npm run lint && npm run test:unit && npm run test:markdown"
+},
   "keywords": [],
   "author": "Tierney Cyren <hello@bnb.im>",
   "license": "MIT",
