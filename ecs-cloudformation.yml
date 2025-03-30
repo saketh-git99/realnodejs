@@ -63,10 +63,10 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: nodejs-task
-      NetworkMode: bridge  # Updated for EC2
-      RequiresCompatibilities: [EC2]  # Changed from Fargate
+      RequiresCompatibilities: [EC2]  # Removed FARGATE
       Cpu: '256'
       Memory: '512'
+      NetworkMode: bridge  # Changed from awsvpc to bridge
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-app
@@ -76,6 +76,7 @@ Resources:
           Essential: true
           PortMappings:
             - ContainerPort: 3000
+              HostPort: 3000  # Required for EC2
 
   # ECS Service (Updated for EC2)
   ECSService:
@@ -86,12 +87,8 @@ Resources:
       LaunchType: EC2  # Changed from FARGATE
       DesiredCount: 1
       TaskDefinition: !Ref TaskDefinition
-      NetworkConfiguration:  # Removed AwsvpcConfiguration since EC2 does not require it
-        AwsvpcConfiguration:
-          Subnets: !Ref SubnetIds
-          SecurityGroups:
-            - !Ref ECSSecurityGroup
-          AssignPublicIp: DISABLED
+      PlacementConstraints:
+        - Type: distinctInstance  # Ensures each task runs on a separate EC2 instance
 
 Outputs:
   ECSClusterName:
