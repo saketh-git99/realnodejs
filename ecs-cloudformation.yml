@@ -5,10 +5,12 @@ Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Select the VPC ID
+    Default: vpc-0d10393a33604e714
 
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
     Description: Select at least two subnets in different AZs
+    Default: subnet-01d80ff00b2e4cee6,subnet-0e23ea4a450f914b4
 
 Resources:
   # ECS Cluster
