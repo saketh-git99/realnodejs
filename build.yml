@@ -42,7 +42,7 @@ Resources:
       RoleArn: !GetAtt CodePipelineRole.Arn
       ArtifactStore:
         Type: S3
-        Location: <S3_BUCKET_NAME>  # Replace with your S3 bucket for storing artifacts
+        Location: nodejs-bucket-27032025
       Stages:
         - Name: Source
           Actions:
@@ -53,7 +53,7 @@ Resources:
                 Provider: S3
                 Version: '1'
               Configuration:
-                S3Bucket: <S3_BUCKET_NAME>  # Replace with actual bucket name
+                S3Bucket: nodejs-bucket-27032025
                 S3ObjectKey: ecs-cloudformation.yml  # CloudFormation file
               OutputArtifacts:
                 - Name: SourceOutput
@@ -71,5 +71,8 @@ Resources:
                 ActionMode: CREATE_UPDATE
                 Capabilities: CAPABILITY_IAM
                 TemplatePath: SourceOutput::ecs-cloudformation.yml
+                Parameters: |
+                  VpcId=<vpc-0d10393a33604e714>
+                  SubnetIds=<subnet-01d80ff00b2e4cee6>,<subnet-0e23ea4a450f914b4>
               InputArtifacts:
                 - Name: SourceOutput
