@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudFormation template to deploy a Node.js app on AWS Fargate with ECS'
+Description: 'CloudFormation template to deploy a Node.js app on AWS ECS with EC2 launch type'
 
 Parameters:
   VpcId:
@@ -58,15 +58,15 @@ Resources:
           ToPort: 3000
           CidrIp: 0.0.0.0/0
 
-  # ECS Task Definition
+  # ECS Task Definition (Updated for EC2)
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: nodejs-task
-      RequiresCompatibilities: [FARGATE]
+      NetworkMode: bridge  # Updated for EC2
+      RequiresCompatibilities: [EC2]  # Changed from Fargate
       Cpu: '256'
       Memory: '512'
-      NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-app
@@ -77,21 +77,21 @@ Resources:
           PortMappings:
             - ContainerPort: 3000
 
-  # ECS Service
+  # ECS Service (Updated for EC2)
   ECSService:
     Type: AWS::ECS::Service
     Properties:
       Cluster: !Ref ECSCluster
       ServiceName: nodejs-service
-      LaunchType: FARGATE
+      LaunchType: EC2  # Changed from FARGATE
       DesiredCount: 1
       TaskDefinition: !Ref TaskDefinition
-      NetworkConfiguration:
+      NetworkConfiguration:  # Removed AwsvpcConfiguration since EC2 does not require it
         AwsvpcConfiguration:
           Subnets: !Ref SubnetIds
           SecurityGroups:
             - !Ref ECSSecurityGroup
-          AssignPublicIp: ENABLED
+          AssignPublicIp: DISABLED
 
 Outputs:
   ECSClusterName:

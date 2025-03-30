@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CodePipeline to deploy ECS using CloudFormation'
+Description: 'CodePipeline to build and deploy ECS using CloudFormation and ECR'
 
 Resources:
   # IAM Role for CodePipeline
@@ -35,6 +35,61 @@ Resources:
                   - iam:PassRole
                 Resource: "*"
 
+  # IAM Role for CodeBuild
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CodeBuildECRRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [codebuild.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: CodeBuildECRPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:PutImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:InitiateLayerUpload
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource: "*"
+
+  # AWS CodeBuild Project
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: NodejsBuild
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_ACCOUNT_ID
+            Value: !Sub "${AWS::AccountId}"
+          - Name: AWS_REGION
+            Value: !Sub "${AWS::Region}"
+          - Name: REPOSITORY_NAME
+            Value: "ecs-nodejs-repo"
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10
+
   # AWS CodePipeline
   CloudFormationPipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -54,9 +109,24 @@ Resources:
                 Version: '1'
               Configuration:
                 S3Bucket: nodejs-bucket-27032025
-                S3ObjectKey: ecs-cloudformation.yml  # CloudFormation file
+                S3ObjectKey: ecs-cloudformation.yml
               OutputArtifacts:
                 - Name: SourceOutput
+
+        - Name: Build
+          Actions:
+            - Name: BuildAndPushToECR
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+              Configuration:
+                ProjectName: NodejsBuild
 
         - Name: Deploy
           Actions:
