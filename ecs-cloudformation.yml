@@ -45,7 +45,6 @@ Resources:
                   - logs:CreateLogGroup
                 Resource: '*'
 
-  # IAM Role for ECS EC2 Instances
   ECSInstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -66,7 +65,6 @@ Resources:
       Roles:
         - !Ref ECSInstanceRole
 
-  # Security Group for ECS Tasks & EC2 Instances
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -81,7 +79,6 @@ Resources:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
 
-  # ECS EC2 Instance
   ECSInstance:
     Type: AWS::EC2::Instance
     Properties:
@@ -90,7 +87,7 @@ Resources:
       SecurityGroupIds:
         - !Ref ECSSecurityGroup
       SubnetId: !Select [0, !Ref SubnetIds]
-      ImageId: ami-0727cf12519cc2b5b  # Amazon ECS-Optimized AMI (Check AWS for latest)
+      ImageId: ami-0727cf12519cc2b5b
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -99,15 +96,14 @@ Resources:
           yum install -y aws-cli
           echo "ECS agent started."
 
-  # ECS Task Definition
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: nodejs-task
-      RequiresCompatibilities: [EC2]  # EC2 launch type
+      RequiresCompatibilities: [EC2]
       Cpu: '256'
       Memory: '512'
-      NetworkMode: host  # EC2 requires 'bridge' or 'host'
+      NetworkMode: host
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-app
@@ -119,7 +115,6 @@ Resources:
             - ContainerPort: 3000
               HostPort: 3000
 
-  # ECS Service
   ECSService:
     Type: AWS::ECS::Service
     Properties:
@@ -129,7 +124,7 @@ Resources:
       DesiredCount: 1
       TaskDefinition: !Ref TaskDefinition
       PlacementConstraints:
-        - Type: distinctInstance  # Ensures each task runs on a separate EC2 instance
+        - Type: distinctInstance
 
 Outputs:
   ECSClusterName:
