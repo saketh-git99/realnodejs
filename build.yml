@@ -1,148 +1,145 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CodePipeline to build and deploy ECS using CloudFormation and ECR'
+Description: 'CloudFormation template to deploy a Node.js app on AWS ECS with EC2 launch type'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC ID
+    Default: vpc-0d10393a33604e714
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Select at least two subnets in different AZs
+    Default: subnet-01d80ff00b2e4cee6,subnet-0e23ea4a450f914b4
 
 Resources:
-  # IAM Role for CodePipeline
-  CodePipelineRole:
-    Type: AWS::IAM::Role
+  ECSCluster:
+    Type: AWS::ECS::Cluster
     Properties:
-      RoleName: CodePipelineCloudFormationRole
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: [codepipeline.amazonaws.com]
-            Action: ['sts:AssumeRole']
-      Policies:
-        - PolicyName: CodePipelinePolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:ListBucket
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - cloudformation:CreateStack
-                  - cloudformation:UpdateStack
-                  - cloudformation:DescribeStacks
-                  - cloudformation:DeleteStack
-                  - cloudformation:DescribeStackEvents
-                  - iam:PassRole
-                Resource: "*"
+      ClusterName: nodejs-cluster
 
-  # IAM Role for CodeBuild
-  CodeBuildRole:
+  ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: CodeBuildECRRole
+      RoleName: ecsTaskExecutionRole
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service: [codebuild.amazonaws.com]
+              Service: [ecs-tasks.amazonaws.com]
             Action: ['sts:AssumeRole']
       Policies:
-        - PolicyName: CodeBuildECRPolicy
+        - PolicyName: ecsTaskExecutionPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
                   - ecr:GetAuthorizationToken
                   - ecr:BatchCheckLayerAvailability
                   - ecr:GetDownloadUrlForLayer
-                  - ecr:PutImage
-                  - ecr:CompleteLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:InitiateLayerUpload
-                  - s3:GetObject
-                  - s3:PutObject
-                  - s3:ListBucket
-                Resource: "*"
+                  - ecr:BatchGetImage
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:CreateLogGroup
+                Resource: '*'
 
-  # AWS CodeBuild Project
-  CodeBuildProject:
-    Type: AWS::CodeBuild::Project
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
     Properties:
-      Name: NodejsBuild
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/standard:5.0
-        Type: LINUX_CONTAINER
-        PrivilegedMode: true
-        EnvironmentVariables:
-          - Name: AWS_ACCOUNT_ID
-            Value: !Sub "${AWS::AccountId}"
-          - Name: AWS_REGION
-            Value: !Sub "${AWS::Region}"
-          - Name: REPOSITORY_NAME
-            Value: "ecs-nodejs-repo"
-      Source:
-        Type: CODEPIPELINE
-      TimeoutInMinutes: 10
+      RoleName: ecsInstanceRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
 
-  # AWS CodePipeline
-  CloudFormationPipeline:
-    Type: AWS::CodePipeline::Pipeline
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
     Properties:
-      RoleArn: !GetAtt CodePipelineRole.Arn
-      ArtifactStore:
-        Type: S3
-        Location: nodejs-bucket-27032025
-      Stages:
-        - Name: Source
-          Actions:
-            - Name: SourceAction
-              ActionTypeId:
-                Category: Source
-                Owner: AWS
-                Provider: S3
-                Version: '1'
-              Configuration:
-                S3Bucket: nodejs-bucket-27032025
-                S3ObjectKey: ecs-cloudformation.yml
-              OutputArtifacts:
-                - Name: SourceOutput
+      Roles:
+        - !Ref ECSInstanceRole
 
-        - Name: Build
-          Actions:
-            - Name: BuildAndPushToECR
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Provider: CodeBuild
-                Version: '1'
-              InputArtifacts:
-                - Name: SourceOutput
-              OutputArtifacts:
-                - Name: BuildOutput
-              Configuration:
-                ProjectName: NodejsBuild
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound traffic to ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
 
-        - Name: Deploy
-          Actions:
-            - Name: DeployCF
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Provider: CloudFormation
-                Version: '1'
-              Configuration:
-                StackName: MyECSStack
-                ActionMode: CREATE_UPDATE
-                Capabilities: CAPABILITY_IAM
-                TemplatePath: SourceOutput::ecs-cloudformation.yml
-                Parameters: |
-                  VpcId=vpc-0d10393a33604e714
-                  SubnetIds="subnet-01d80ff00b2e4cee6,subnet-0e23ea4a450f914b4"
-              InputArtifacts:
-                - Name: SourceOutput
+  ECSInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref ECSInstanceProfile
+      SecurityGroupIds:
+        - !Ref ECSSecurityGroup
+      SubnetId: !Select [0, !Ref SubnetIds]
+      ImageId: ami-0727cf12519cc2b5b
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          echo "ECS_CLUSTER=nodejs-cluster" >> /etc/ecs/ecs.config
+          systemctl enable --now ecs.service
+          yum install -y aws-cli
+          echo "ECS agent started."
+          systemctl restart ecs
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: nodejs-task
+      RequiresCompatibilities: [EC2]
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: bridge
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: nodejs-app
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/ecs-nodejs-repo:latest"
+          Memory: 512
+          Cpu: 256
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+              HostPort: 0 # Dynamic host port
+
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: nodejs-service
+      LaunchType: EC2
+      DesiredCount: 1
+      TaskDefinition: !Ref TaskDefinition
+      PlacementConstraints:
+        - Type: distinctInstance
+
+Outputs:
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+
+  ECSInstanceId:
+    Description: ECS EC2 Instance ID
+    Value: !Ref ECSInstance
+
+  ECSTaskExecutionRole:
+    Description: IAM Role for ECS Task Execution
+    Value: !GetAtt ECSTaskExecutionRole.Arn
