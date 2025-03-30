@@ -13,7 +13,6 @@ Parameters:
     Default: subnet-01d80ff00b2e4cee6,subnet-0e23ea4a450f914b4
 
 Resources:
-  # ECS Cluster
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
