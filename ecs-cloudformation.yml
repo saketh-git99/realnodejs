@@ -86,7 +86,7 @@ Resources:
       ServiceName: nodejs-service
       LaunchType: FARGATE
       DesiredCount: 1
-      TaskDefinition: !Ref TaskDefinition.Arn
+      TaskDefinition: !Ref TaskDefinition
       NetworkConfiguration:
         AwsvpcConfiguration:
           Subnets: !Ref SubnetIds
