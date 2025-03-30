@@ -90,7 +90,7 @@ Resources:
       SecurityGroupIds:
         - !Ref ECSSecurityGroup
       SubnetId: !Select [0, !Ref SubnetIds]
-      ImageId: ami-0f403e3180720dd7e  # Amazon ECS-Optimized AMI (Check AWS for latest)
+      ImageId: ami-0727cf12519cc2b5b  # Amazon ECS-Optimized AMI (Check AWS for latest)
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -107,7 +107,7 @@ Resources:
       RequiresCompatibilities: [EC2]  # EC2 launch type
       Cpu: '256'
       Memory: '512'
-      NetworkMode: bridge  # EC2 requires 'bridge' or 'host'
+      NetworkMode: host  # EC2 requires 'bridge' or 'host'
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-app
